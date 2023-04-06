@@ -2,6 +2,7 @@ import contextlib
 import math
 import re
 import time
+import pprint
 
 import cv2
 import numpy as np
@@ -238,12 +239,27 @@ def non_max_suppression(
         if not n:  # no boxes
             continue
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
+        boxes, scores, c = x[:, :4], x[:, 4], x[:, 5]
+        ## iterate per class
+        i_by_class = []
+        for ci in range(nc):
+            c_idx = torch.nonzero(c==ci).squeeze()
+            if c_idx.numel()<1:
+                continue
+            elif c_idx.numel()==1:
+                i_by_class.append(c_idx.unsqueeze(0))
+                continue
+            else:
+                ## boxes, scores with current class
+                cur_c_boxes = torch.index_select(boxes, dim=0, index=c_idx)
+                cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
+                cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
+                cur_c_i_rec = c_idx[cur_c_i]
+                i_by_class.append(cur_c_i_rec)
 
-        # Batched NMS
-        c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
-        boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
-        i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
-        i = i[:max_det]  # limit detections
+        # i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
+        i = torch.cat(i_by_class, 0)
+        # i = i[:max_det]  # limit detections
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
