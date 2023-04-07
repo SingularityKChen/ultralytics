@@ -251,8 +251,8 @@ def non_max_suppression(
             indices_max = torch.amax(boxes, 0)
             indices_x_max = max(indices_max[0], indices_max[2])
             indices_y_max = max(indices_max[1], indices_max[3])
-            ## the score map shape in PSRR-MaxPool. 12 is the channels of the score map
-            score_map_shape = [1, int(indices_x_max/16), int(indices_y_max/16), 12]
+            ## the score map shape in PSRR-MaxPool. 12 is the channels of the score map [1, y, x, 12]
+            score_map_shape = [1, int(indices_y_max/16), int(indices_x_max/16), 12]
             score_map_shape_pd = pd.DataFrame(score_map_shape)
         else:
             score_map_shape_pd = pd.DataFrame([])
