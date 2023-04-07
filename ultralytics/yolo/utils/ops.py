@@ -269,6 +269,7 @@ def non_max_suppression(
                 ## boxes, scores with current class
                 cur_c_boxes = torch.index_select(boxes, dim=0, index=c_idx)
                 cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
+                cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
                 ## write middle results to file
                 if write_middle_results:
                     cur_real_img_i = batch_i * batch_size + xi
@@ -277,12 +278,14 @@ def non_max_suppression(
                     boxes_filename = cur_result_dir / "cls_boxes_org.csv"
                     scores_filename = cur_result_dir / "cls_scores.csv"
                     score_map_filename = cur_result_dir / "score_map_shape.csv"
+                    selected_indices_filename = cur_result_dir / "selected_indices.csv"
                     cur_c_boxes_pd = pd.DataFrame(cur_c_boxes.cpu().tolist())
                     cur_c_scores_pd = pd.DataFrame(cur_c_scores.cpu())
                     score_map_shape_pd.to_csv(score_map_filename, header=False, index=False)
                     cur_c_boxes_pd.to_csv(boxes_filename, header=False, index=False)
                     cur_c_scores_pd.to_csv(scores_filename, header=False, index=False)
-                cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
+                    cur_c_i_pd = pd.DataFrame(cur_c_i.cpu().tolist())
+                    cur_c_i_pd.to_csv(selected_indices_filename, header=False, index=False)
                 cur_c_i_rec = c_idx[cur_c_i]
                 i_by_class.append(cur_c_i_rec)
 
