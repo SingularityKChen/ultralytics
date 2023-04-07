@@ -1,11 +1,13 @@
 import contextlib
 import math
+from pathlib import Path
 import re
 import time
 import pprint
 
 import cv2
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 import torchvision
@@ -143,6 +145,10 @@ def non_max_suppression(
         max_time_img=0.05,
         max_nms=30000,
         max_wh=7680,
+        write_middle_results=False,
+        results_dir=Path("/usr/middle_data"),
+        batch_size=1,
+        batch_i=0,
 ):
     """
     Perform non-maximum suppression (NMS) on a set of boxes, with support for masks and multiple labels per box.
@@ -240,6 +246,16 @@ def non_max_suppression(
             continue
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
         boxes, scores, c = x[:, :4], x[:, 4], x[:, 5]
+        if write_middle_results:
+            # the max values of xyxy
+            indices_max = torch.amax(boxes, 0)
+            indices_x_max = max(indices_max[0], indices_max[2])
+            indices_y_max = max(indices_max[1], indices_max[3])
+            ## the score map shape in PSRR-MaxPool. 12 is the channels of the score map
+            score_map_shape = [1, int(indices_x_max/16), int(indices_y_max/16), 12]
+            score_map_shape_pd = pd.DataFrame(score_map_shape)
+        else:
+            score_map_shape_pd = pd.DataFrame([])
         ## iterate per class
         i_by_class = []
         for ci in range(nc):
@@ -253,6 +269,19 @@ def non_max_suppression(
                 ## boxes, scores with current class
                 cur_c_boxes = torch.index_select(boxes, dim=0, index=c_idx)
                 cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
+                ## write middle results to file
+                if write_middle_results:
+                    cur_real_img_i = batch_i * batch_size + xi
+                    cur_result_dir = results_dir / str(cur_real_img_i) / str(ci)
+                    cur_result_dir.mkdir(parents=True, exist_ok=True)
+                    boxes_filename = cur_result_dir / "cls_boxes_org.csv"
+                    scores_filename = cur_result_dir / "cls_scores.csv"
+                    score_map_filename = cur_result_dir / "score_map_shape.csv"
+                    cur_c_boxes_pd = pd.DataFrame(cur_c_boxes.cpu().tolist())
+                    cur_c_scores_pd = pd.DataFrame(cur_c_scores.cpu())
+                    score_map_shape_pd.to_csv(score_map_filename, header=False, index=False)
+                    cur_c_boxes_pd.to_csv(boxes_filename, header=False, index=False)
+                    cur_c_scores_pd.to_csv(scores_filename, header=False, index=False)
                 cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
                 cur_c_i_rec = c_idx[cur_c_i]
                 i_by_class.append(cur_c_i_rec)

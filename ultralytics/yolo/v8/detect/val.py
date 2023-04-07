@@ -56,14 +56,19 @@ class DetectionValidator(BaseValidator):
     def get_desc(self):
         return ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'Box(P', 'R', 'mAP50', 'mAP50-95)')
 
-    def postprocess(self, preds):
+    def postprocess(self, preds, write_middle_results=False, batch_i=0):
+        results_dir = Path(f"/usr/middle_data/{self.args.model}/{self.args.data.split('.')[0]}")
         preds = ops.non_max_suppression(preds,
                                         self.args.conf,
                                         self.args.iou,
                                         labels=self.lb,
                                         multi_label=True,
                                         agnostic=self.args.single_cls,
-                                        max_det=self.args.max_det)
+                                        max_det=self.args.max_det,
+                                        write_middle_results=write_middle_results,
+                                        results_dir=results_dir,
+                                        batch_size=self.args.batch,
+                                        batch_i=batch_i)
         return preds
 
     def update_metrics(self, preds, batch):
