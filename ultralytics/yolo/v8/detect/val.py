@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 
 from ultralytics.yolo.data import build_dataloader
@@ -56,8 +57,19 @@ class DetectionValidator(BaseValidator):
     def get_desc(self):
         return ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'Box(P', 'R', 'mAP50', 'mAP50-95)')
 
-    def postprocess(self, preds, write_middle_results=False, batch_i=0):
+    def postprocess(self, preds, use_pmodel_nms=True, write_middle_results=False, batch_i=0):
         results_dir = Path(f"/usr/middle_data/{self.args.model}/{self.args.data.split('.')[0]}")
+        pmodel_nms_results_dir = Path(f"/usr/src/PSRR-Maxpool/docs/perf_results/{self.args.model}/{self.args.data.split('.')[0]}")
+        if use_pmodel_nms:
+            pmodel_indices_filename = pmodel_nms_results_dir / "pmodel_selected_indices.csv"
+            pmodel_nms_pd = pd.read_csv(pmodel_indices_filename, header=None,
+                                        names=["img_idx",
+                                               "class_idx", "argmax"],
+                                        converters={
+                                            "img_idx": int, "class_idx": int, "argmax": int}
+                                        ).groupby(["img_idx", "class_idx"])
+        else:
+            pmodel_nms_pd = pd.DataFrame([])
         preds = ops.non_max_suppression(preds,
                                         self.args.conf,
                                         self.args.iou,
@@ -65,6 +77,8 @@ class DetectionValidator(BaseValidator):
                                         multi_label=True,
                                         agnostic=self.args.single_cls,
                                         max_det=self.args.max_det,
+                                        use_pmodel_nms=use_pmodel_nms,
+                                        pmodel_nms_pd=pmodel_nms_pd,
                                         write_middle_results=write_middle_results,
                                         results_dir=results_dir,
                                         batch_size=self.args.batch,

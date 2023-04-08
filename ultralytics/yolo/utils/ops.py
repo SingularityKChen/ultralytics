@@ -145,6 +145,8 @@ def non_max_suppression(
         max_time_img=0.05,
         max_nms=30000,
         max_wh=7680,
+        use_pmodel_nms=False,
+        pmodel_nms_pd=pd.DataFrame([]),
         write_middle_results=False,
         results_dir=Path("/usr/middle_data"),
         batch_size=1,
@@ -246,7 +248,7 @@ def non_max_suppression(
             continue
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
         boxes, scores, c = x[:, :4], x[:, 4], x[:, 5]
-        if write_middle_results:
+        if write_middle_results and (not use_pmodel_nms):
             # the max values of xyxy
             indices_max = torch.amax(boxes, 0)
             indices_x_max = max(indices_max[0], indices_max[2])
@@ -269,10 +271,19 @@ def non_max_suppression(
                 ## boxes, scores with current class
                 cur_c_boxes = torch.index_select(boxes, dim=0, index=c_idx)
                 cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
-                cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
+                # current real image index
+                cur_real_img_i = batch_i * batch_size + xi
+                # read the nms results from pmodel
+                if use_pmodel_nms:
+                    if ((cur_real_img_i, ci) in pmodel_nms_pd.groups):
+                        cur_c_i = pmodel_nms_pd.get_group((cur_real_img_i, ci))["argmax"].tolist()
+                    # if no results from pmodel, then using [0]
+                    else:
+                        cur_c_i = [0]
+                else:
+                    cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
                 ## write middle results to file
-                if write_middle_results:
-                    cur_real_img_i = batch_i * batch_size + xi
+                if write_middle_results and (not use_pmodel_nms):
                     cur_result_dir = results_dir / str(cur_real_img_i) / str(ci)
                     cur_result_dir.mkdir(parents=True, exist_ok=True)
                     boxes_filename = cur_result_dir / "cls_boxes_org.csv"
