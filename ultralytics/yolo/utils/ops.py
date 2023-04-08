@@ -253,22 +253,22 @@ def non_max_suppression(
             indices_max = torch.amax(boxes, 0)
             indices_x_max = max(indices_max[0], indices_max[2])
             indices_y_max = max(indices_max[1], indices_max[3])
-            ## the score map shape in PSRR-MaxPool. 12 is the channels of the score map [1, y, x, 12]
-            score_map_shape = [1, int(indices_y_max/16), int(indices_x_max/16), 12]
+            # the score map shape in PSRR-MaxPool. 12 is the channels of the score map [1, y, x, 12]
+            score_map_shape = [1, int(indices_y_max / 16), int(indices_x_max / 16), 12]
             score_map_shape_pd = pd.DataFrame(score_map_shape)
         else:
             score_map_shape_pd = pd.DataFrame([])
-        ## iterate per class
+        # iterate per class
         i_by_class = []
         for ci in range(nc):
-            c_idx = torch.nonzero(c==ci).squeeze()
-            if c_idx.numel()<1:
+            c_idx = torch.nonzero(c == ci).squeeze()
+            if c_idx.numel() < 1:
                 continue
-            elif c_idx.numel()==1:
+            elif c_idx.numel() == 1:
                 i_by_class.append(c_idx.unsqueeze(0))
                 continue
             else:
-                ## boxes, scores with current class
+                # boxes, scores with current class
                 cur_c_boxes = torch.index_select(boxes, dim=0, index=c_idx)
                 cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
                 # current real image index
@@ -282,7 +282,7 @@ def non_max_suppression(
                         cur_c_i = [0]
                 else:
                     cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
-                ## write middle results to file
+                # write middle results to file
                 if write_middle_results and (not use_pmodel_nms):
                     cur_result_dir = results_dir / str(cur_real_img_i) / str(ci)
                     cur_result_dir.mkdir(parents=True, exist_ok=True)
