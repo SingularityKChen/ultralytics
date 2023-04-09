@@ -57,9 +57,23 @@ class DetectionValidator(BaseValidator):
     def get_desc(self):
         return ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'Box(P', 'R', 'mAP50', 'mAP50-95)')
 
-    def postprocess(self, preds, use_pmodel_nms=True, write_middle_results=False, batch_i=0):
+    def postprocess(self, preds, use_shapool_nms=False, use_pmodel_nms=False, write_middle_results=False, batch_i=0):
         results_dir = Path(f"/usr/middle_data/{self.args.model}/{self.args.data.split('.')[0]}")
-        pmodel_nms_results_dir = Path(f"/usr/src/PSRR-Maxpool/docs/perf_results/{self.args.model}/{self.args.data.split('.')[0]}")
+        shapool_cfg = "16-bit-2w-8m-sp4"
+        shapool_nms_results_dir = Path(
+            f"/usr/src/ShapoolNMS/test_run_dir/perf/{self.args.model}/{self.args.data.split('.')[0]}/{shapool_cfg}")
+        pmodel_nms_results_dir = Path(
+            f"/usr/src/PSRR-Maxpool/docs/perf_results/{self.args.model}/{self.args.data.split('.')[0]}")
+        if use_shapool_nms:
+            shapool_indices_filename = shapool_nms_results_dir / "selected_indices.csv"
+            shapool_nms_pd = pd.read_csv(shapool_indices_filename, header=None,
+                                         names=["img_idx",
+                                                "class_idx", "argmax"],
+                                         converters={
+                                             "img_idx": int, "class_idx": int, "argmax": int}
+                                         ).groupby(["img_idx", "class_idx"])
+        else:
+            shapool_nms_pd = pd.DataFrame([])
         if use_pmodel_nms:
             pmodel_indices_filename = pmodel_nms_results_dir / "pmodel_selected_indices.csv"
             pmodel_nms_pd = pd.read_csv(pmodel_indices_filename, header=None,
@@ -77,6 +91,8 @@ class DetectionValidator(BaseValidator):
                                         multi_label=True,
                                         agnostic=self.args.single_cls,
                                         max_det=self.args.max_det,
+                                        use_shapool_nms=use_shapool_nms,
+                                        shapool_nms_pd=shapool_nms_pd,
                                         use_pmodel_nms=use_pmodel_nms,
                                         pmodel_nms_pd=pmodel_nms_pd,
                                         write_middle_results=write_middle_results,

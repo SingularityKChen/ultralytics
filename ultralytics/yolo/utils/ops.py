@@ -145,6 +145,8 @@ def non_max_suppression(
         max_time_img=0.05,
         max_nms=30000,
         max_wh=7680,
+        use_shapool_nms=False,
+        shapool_nms_pd=pd.DataFrame([]),
         use_pmodel_nms=False,
         pmodel_nms_pd=pd.DataFrame([]),
         write_middle_results=False,
@@ -248,13 +250,14 @@ def non_max_suppression(
             continue
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
         boxes, scores, c = x[:, :4], x[:, 4], x[:, 5]
-        if write_middle_results and (not use_pmodel_nms):
+        use_torch_nms = (not use_pmodel_nms) and (not use_shapool_nms)
+        if write_middle_results and use_torch_nms:
             # the max values of xyxy
             indices_max = torch.amax(boxes, 0)
             indices_x_max = max(indices_max[0], indices_max[2])
             indices_y_max = max(indices_max[1], indices_max[3])
             # the score map shape in PSRR-MaxPool. 12 is the channels of the score map [1, y, x, 12]
-            score_map_shape = [1, int(indices_y_max / 16), int(indices_x_max / 16), 12]
+            score_map_shape = [1, math.ceil(indices_y_max / 16), math.ceil(indices_x_max / 16), 12]
             score_map_shape_pd = pd.DataFrame(score_map_shape)
         else:
             score_map_shape_pd = pd.DataFrame([])
@@ -273,30 +276,62 @@ def non_max_suppression(
                 cur_c_scores = torch.index_select(scores, dim=0, index=c_idx)
                 # current real image index
                 cur_real_img_i = batch_i * batch_size + xi
-                # read the nms results from pmodel
-                if use_pmodel_nms:
+                if use_torch_nms:
+                    cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
+                elif use_shapool_nms:
+                    if ((cur_real_img_i, ci) in shapool_nms_pd.groups):
+                        # divide by 12 (score map channel)
+                        shapool_argmax = pd.DataFrame(columns=["argmax"])
+                        shapool_argmax["argmax"] = (shapool_nms_pd.get_group(
+                            (cur_real_img_i, ci))["argmax"] / 12).astype(int)
+                        golden_argmax_csv = results_dir / str(cur_real_img_i) / str(ci) / "argmax.csv"
+                        golden_score_csv = results_dir / str(cur_real_img_i) / str(ci) / "cls_scores.csv"
+                        golden_argmax_pd = pd.read_csv(golden_argmax_csv, header=None, 
+                                                       names=["argmax", "ctr_x", "ctr_y", "score"])
+                        golden_score_pd = pd.read_csv(golden_score_csv, header=None, names=["score"], dtype=float)
+                        argmax_mask = golden_argmax_pd['argmax'].isin(shapool_argmax['argmax'])
+                        shapool_argmax = golden_argmax_pd[argmax_mask]
+                        mask = golden_score_pd['score'].isin(shapool_argmax['score'])
+                        cur_c_i = golden_score_pd[mask].index.tolist()
+                    # if no results from pmodel, then using [0]
+                    else:
+                        cur_c_i = [0]
+                else:
+                    # read the nms results from pmodel
                     if ((cur_real_img_i, ci) in pmodel_nms_pd.groups):
                         cur_c_i = pmodel_nms_pd.get_group((cur_real_img_i, ci))["argmax"].tolist()
                     # if no results from pmodel, then using [0]
                     else:
                         cur_c_i = [0]
-                else:
-                    cur_c_i = torchvision.ops.nms(cur_c_boxes, cur_c_scores, iou_thres)  # NMS
                 # write middle results to file
-                if write_middle_results and (not use_pmodel_nms):
+                if write_middle_results and use_torch_nms:
                     cur_result_dir = results_dir / str(cur_real_img_i) / str(ci)
                     cur_result_dir.mkdir(parents=True, exist_ok=True)
                     boxes_filename = cur_result_dir / "cls_boxes_org.csv"
                     scores_filename = cur_result_dir / "cls_scores.csv"
                     score_map_filename = cur_result_dir / "score_map_shape.csv"
                     selected_indices_filename = cur_result_dir / "selected_indices.csv"
+                    argmax_filename = cur_result_dir / "argmax.csv"
                     cur_c_boxes_pd = pd.DataFrame(cur_c_boxes.cpu().tolist())
                     cur_c_scores_pd = pd.DataFrame(cur_c_scores.cpu())
+                    argmax_pd = pd.DataFrame(columns=["argmax", "ctr_x", "ctr_y", "score"])
+                    argmax_pd["ctr_x"] = (((((cur_c_boxes_pd[2].astype(int) - cur_c_boxes_pd[0].astype(int)) /
+                                          2).astype(int) + cur_c_boxes_pd[0].astype(int)) - 8) / 16).astype(int)
+                    argmax_pd["ctr_y"] = (((((cur_c_boxes_pd[3].astype(int) - cur_c_boxes_pd[1].astype(int)) /
+                                          2).astype(int) + cur_c_boxes_pd[1].astype(int)) - 8) / 16).astype(int)
+                    argmax_pd["argmax"] = argmax_pd["ctr_y"] * score_map_shape[2] + argmax_pd["ctr_x"]
+                    argmax_pd["score"] = cur_c_scores_pd
+                    # group the dataframe by "argmax" column and get the maximum "score" value within each group
+                    max_scores = argmax_pd.groupby('argmax')['score'].max()
+                    # select the rows where the "score" matches the maximum value within each group
+                    argmax_pd = argmax_pd.loc[argmax_pd.set_index(['argmax', 'score']).index.isin(
+                        max_scores.reset_index().set_index(['argmax', 'score']).index)]
                     score_map_shape_pd.to_csv(score_map_filename, header=False, index=False)
                     cur_c_boxes_pd.to_csv(boxes_filename, header=False, index=False)
                     cur_c_scores_pd.to_csv(scores_filename, header=False, index=False)
                     cur_c_i_pd = pd.DataFrame(cur_c_i.cpu().tolist())
                     cur_c_i_pd.to_csv(selected_indices_filename, header=False, index=False)
+                    argmax_pd.to_csv(argmax_filename, header=False, index=False)
                 cur_c_i_rec = c_idx[cur_c_i]
                 i_by_class.append(cur_c_i_rec)
 
