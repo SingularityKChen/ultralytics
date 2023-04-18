@@ -59,7 +59,7 @@ class DetectionValidator(BaseValidator):
 
     def postprocess(self, preds, use_shapool_nms=False, use_pmodel_nms=False, write_middle_results=False, batch_i=0):
         results_dir = Path(f"/usr/middle_data/{self.args.model}/{self.args.data.split('.')[0]}")
-        shapool_cfg = "16-bit-2w-8m-sp4"
+        shapool_cfg = "32-bit-2w-4m-sp4"
         shapool_nms_results_dir = Path(
             f"/usr/src/ShapoolNMS/test_run_dir/perf/{self.args.model}/{self.args.data.split('.')[0]}/{shapool_cfg}")
         pmodel_nms_results_dir = Path(
